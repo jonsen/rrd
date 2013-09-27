@@ -4,7 +4,8 @@ package rrd
 #include <stdlib.h>
 #include <rrd.h>
 #include "rrdfunc.h"
-#cgo LDFLAGS: -lrrd_th
+#cgo LDFLAGS: -lrrd_th -L/usr/local/lib
+#cgo CFLAGS: -I/usr/local/include
 */
 import "C"
 import (
