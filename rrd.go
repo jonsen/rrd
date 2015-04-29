@@ -174,6 +174,8 @@ type Grapher struct {
 	imageFormat string
 	interlaced  bool
 
+	daemon string
+
 	args []string
 }
 
@@ -284,6 +286,10 @@ func (g *Grapher) SetBase(base uint) {
 
 func (g *Grapher) SetWatermark(watermark string) {
 	g.watermark = watermark
+}
+
+func (g *Grapher) SetDaemon(daemon string) {
+	g.daemon = daemon
 }
 
 func (g *Grapher) push(cmd string, options []string) {
@@ -400,4 +406,63 @@ type FetchResult struct {
 
 func (r *FetchResult) ValueAt(dsIndex, rowIndex int) float64 {
 	return r.values[len(r.DsNames)*rowIndex+dsIndex]
+}
+
+type Exporter struct {
+	maxRows uint
+
+	daemon string
+
+	args []string
+}
+
+func NewExporter() *Exporter {
+	return &Exporter{}
+}
+
+func (e *Exporter) SetMaxRows(maxRows uint) {
+	e.maxRows = maxRows
+}
+
+func (e *Exporter) push(cmd string, options []string) {
+	if len(options) > 0 {
+		cmd += ":" + strings.Join(options, ":")
+	}
+	e.args = append(e.args, cmd)
+}
+
+func (e *Exporter) Def(vname, rrdfile, dsname, cf string, options ...string) {
+	e.push(
+		fmt.Sprintf("DEF:%s=%s:%s:%s", vname, rrdfile, dsname, cf),
+		options,
+	)
+}
+
+func (e *Exporter) CDef(vname, rpn string) {
+	e.push("CDEF:"+vname+"="+rpn, nil)
+}
+
+func (e *Exporter) XportDef(vname, label string) {
+	e.push("XPORT:"+vname+":"+label, nil)
+}
+
+func (e *Exporter) Xport(start, end time.Time, step time.Duration) (XportResult, error) {
+	return e.xport(start, end, step)
+}
+
+func (e *Exporter) SetDaemon(daemon string) {
+	e.daemon = daemon
+}
+
+type XportResult struct {
+	Start   time.Time
+	End     time.Time
+	Step    time.Duration
+	Legends []string
+	RowCnt  int
+	values  []float64
+}
+
+func (r *XportResult) ValueAt(legendIndex, rowIndex int) float64 {
+	return r.values[len(r.Legends)*rowIndex+legendIndex]
 }
