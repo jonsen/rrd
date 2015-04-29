@@ -18,6 +18,8 @@ import (
 	"unsafe"
 )
 
+var mutex sync.Mutex
+
 func makeArgs(args []string) []*C.char {
 	ret := make([]*C.char, len(args))
 	for i, s := range args {
@@ -72,7 +74,9 @@ func (u *Updater) update(args []unsafe.Pointer) error {
 }
 
 var (
-	graphv           = C.CString("graphv")
+	graphv = C.CString("graphv")
+	xport  = C.CString("xport")
+
 	oStart           = C.CString("-s")
 	oEnd             = C.CString("-e")
 	oTitle           = C.CString("-t")
@@ -94,6 +98,8 @@ var (
 	oRightAxis      = C.CString("--right-axis")
 	oRightAxisLabel = C.CString("--right-axis-label")
 
+	oDaemon = C.CString("--daemon")
+
 	oNoLegend = C.CString("-g")
 
 	oLazy = C.CString("-z")
@@ -106,6 +112,9 @@ var (
 
 	oBase      = C.CString("-b")
 	oWatermark = C.CString("-W")
+
+	oStep    = C.CString("--step")
+	oMaxRows = C.CString("-m")
 )
 
 func ftoa(f float64) string {
@@ -229,12 +238,31 @@ func (g *Grapher) makeArgs(filename string, start, end time.Time) []*C.char {
 		args = append(args, oInterlaced)
 	}
 	if g.base != 0 {
-		args = append(args, oInterlaced, utoc(g.base))
+		args = append(args, oBase, utoc(g.base))
 	}
 	if g.watermark != "" {
 		args = append(args, oWatermark, C.CString(g.watermark))
 	}
+	if g.daemon != "" {
+		args = append(args, oDaemon, C.CString(g.daemon))
+	}
 	return append(args, makeArgs(g.args)...)
+}
+
+func (e *Exporter) makeArgs(start, end time.Time, step time.Duration) []*C.char {
+	args := []*C.char{
+		xport,
+		oStart, i64toc(start.Unix()),
+		oEnd, i64toc(end.Unix()),
+		oStep, i64toc(int64(step.Seconds())),
+	}
+	if e.maxRows != 0 {
+		args = append(args, oMaxRows, utoc(e.maxRows))
+	}
+	if e.daemon != "" {
+		args = append(args, oDaemon, C.CString(e.daemon))
+	}
+	return append(args, makeArgs(e.args)...)
 }
 
 func parseInfoKey(ik string) (kname, kkey string, kid int) {
@@ -254,7 +282,7 @@ func parseInfoKey(ik string) (kname, kkey string, kid int) {
 	kkey = ik[o+1 : c]
 	if strings.HasPrefix(kname, "ds.") {
 		return
-	} else	if id, err := strconv.Atoi(kkey); err == nil && id >= 0 {
+	} else if id, err := strconv.Atoi(kkey); err == nil && id >= 0 {
 		kid = id
 	}
 	return
@@ -350,14 +378,12 @@ func parseGraphInfo(i *C.rrd_info_t) (gi GraphInfo, img []byte) {
 	return
 }
 
-var graphMutex sync.Mutex
-
 func (g *Grapher) graph(filename string, start, end time.Time) (GraphInfo, []byte, error) {
 	var i *C.rrd_info_t
 	args := g.makeArgs(filename, start, end)
 
-	graphMutex.Lock() // rrd_graph_v isn't thread safe
-	defer graphMutex.Unlock()
+	mutex.Lock() // rrd_graph_v isn't thread safe
+	defer mutex.Unlock()
 
 	err := makeError(C.rrdGraph(
 		&i,
@@ -420,7 +446,7 @@ func Fetch(filename, cf string, start, end time.Time, step time.Duration) (Fetch
 
 	rowCnt := (int(cEnd)-int(cStart))/int(cStep) + 1
 	valuesLen := dsCnt * rowCnt
-	values := make([]float64, valuesLen)
+	var values []float64
 	sliceHeader := (*reflect.SliceHeader)((unsafe.Pointer(&values)))
 	sliceHeader.Cap = valuesLen
 	sliceHeader.Len = valuesLen
@@ -430,6 +456,67 @@ func Fetch(filename, cf string, start, end time.Time, step time.Duration) (Fetch
 
 // FreeValues free values memory allocated by C.
 func (r *FetchResult) FreeValues() {
+	sliceHeader := (*reflect.SliceHeader)((unsafe.Pointer(&r.values)))
+	C.free(unsafe.Pointer(sliceHeader.Data))
+}
+
+// Values returns copy of internal array of values. 
+func (r *FetchResult) Values() []float64 {
+	return append([]float64{}, r.values...)
+}
+
+// Export data from RRD file(s)
+func (e *Exporter) xport(start, end time.Time, step time.Duration) (XportResult, error) {
+	cStart := C.time_t(start.Unix())
+	cEnd := C.time_t(end.Unix())
+	cStep := C.ulong(step.Seconds())
+	args := e.makeArgs(start, end, step)
+
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	var (
+		ret      C.int
+		cXSize   C.int
+		cColCnt  C.ulong
+		cLegends **C.char
+		cData    *C.double
+	)
+	err := makeError(C.rrdXport(
+		&ret,
+		C.int(len(args)),
+		&args[0],
+		&cXSize, &cStart, &cEnd, &cStep, &cColCnt, &cLegends, &cData,
+	))
+	if err != nil {
+		return XportResult{start, end, step, nil, 0, nil}, err
+	}
+
+	start = time.Unix(int64(cStart), 0)
+	end = time.Unix(int64(cEnd), 0)
+	step = time.Duration(cStep) * time.Second
+	colCnt := int(cColCnt)
+
+	legends := make([]string, colCnt)
+	for i := 0; i < colCnt; i++ {
+		legend := C.arrayGetCString(cLegends, C.int(i))
+		legends[i] = C.GoString(legend)
+		C.free(unsafe.Pointer(legend))
+	}
+	C.free(unsafe.Pointer(cLegends))
+
+	rowCnt := (int(cEnd)-int(cStart))/int(cStep) + 1
+	valuesLen := colCnt * rowCnt
+	values := make([]float64, valuesLen)
+	sliceHeader := (*reflect.SliceHeader)((unsafe.Pointer(&values)))
+	sliceHeader.Cap = valuesLen
+	sliceHeader.Len = valuesLen
+	sliceHeader.Data = uintptr(unsafe.Pointer(cData))
+	return XportResult{start, end, step, legends, rowCnt, values}, nil
+}
+
+// FreeValues free values memory allocated by C.
+func (r *XportResult) FreeValues() {
 	sliceHeader := (*reflect.SliceHeader)((unsafe.Pointer(&r.values)))
 	C.free(unsafe.Pointer(sliceHeader.Data))
 }
