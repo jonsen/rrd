@@ -4,6 +4,7 @@ package rrd
 #include <stdlib.h>
 #include <rrd.h>
 #include "rrdfunc.h"
+#cgo pkg-config: librrd
 #cgo LDFLAGS: -lrrd_th -L/usr/local/lib
 #cgo CFLAGS: -I/usr/local/include
 */
@@ -460,7 +461,7 @@ func (r *FetchResult) FreeValues() {
 	C.free(unsafe.Pointer(sliceHeader.Data))
 }
 
-// Values returns copy of internal array of values. 
+// Values returns copy of internal array of values.
 func (r *FetchResult) Values() []float64 {
 	return append([]float64{}, r.values...)
 }
