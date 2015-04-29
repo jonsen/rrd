@@ -8,11 +8,11 @@ rrd currently supports rrdtool-1.4.x
 
 Install rrd with:
 
-    go get github.com/ziutek/rrd
+    go get github.com/jonsen/rrd
 
 ## Usage
 
 See [GoDoc](http://gopkgdoc.appspot.com/pkg/github.com/ziutek/rrd) for documentation.
 
 ## Example 
-See [rrd_test.go](https://github.com/ziutek/rrd/blob/master/rrd_test.go) for an example of using this package.
+See [rrd_test.go](https://github.com/jonsen/rrd/blob/master/rrd_test.go) for an example of using this package.
