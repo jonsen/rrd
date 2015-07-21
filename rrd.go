@@ -183,6 +183,8 @@ type Grapher struct {
 	daemon string
 
 	args []string
+
+	fonts []string
 }
 
 const (
@@ -387,6 +389,21 @@ func (g *Grapher) Shift(vname string, offset interface{}) {
 
 func (g *Grapher) TextAlign(align string) {
 	g.push("TEXTALIGN:"+align, nil)
+}
+
+func (g *Grapher) SetFont(vname string, options ...interface{}) {
+	var str string
+	if len(options) < 1 {
+		return
+	}
+
+	if len(options) > 1 {
+		str = fmt.Sprintf("%s:%v:%v", vname, options[0], options[1])
+	} else {
+		str = fmt.Sprintf("%s:%v:", vname, options[0])
+	}
+
+	g.fonts = append(g.fonts, str)
 }
 
 // Graph returns GraphInfo and image as []byte or error

@@ -116,6 +116,9 @@ var (
 
 	oStep    = C.CString("--step")
 	oMaxRows = C.CString("-m")
+
+	//
+	oFont = C.CString("--font")
 )
 
 func ftoa(f float64) string {
@@ -218,6 +221,13 @@ func (g *Grapher) makeArgs(filename string, start, end time.Time) []*C.char {
 		args = append(
 			args,
 			oRightAxisLabel, C.CString(g.rightAxisLabel),
+		)
+	}
+
+	for _, font := range g.fonts {
+		args = append(
+			args,
+			oFont, C.CString(font),
 		)
 	}
 	if g.noLegend {
