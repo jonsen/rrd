@@ -465,10 +465,6 @@ func NewExporter() *Exporter {
 	return &Exporter{}
 }
 
-func (g *Grapher) AddOptions(options ...string) {
-	g.args = append(g.args, options...)
-}
-
 func (e *Exporter) SetMaxRows(maxRows uint) {
 	e.maxRows = maxRows
 }
