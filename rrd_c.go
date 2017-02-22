@@ -5,7 +5,7 @@ package rrd
 #include <rrd.h>
 #include "rrdfunc.h"
 #cgo pkg-config: librrd
-#cgo LDFLAGS: -lrrd_th -L/usr/local/lib
+#cgo LDFLAGS: -L/usr/local/lib
 #cgo CFLAGS: -I/usr/local/include
 */
 import "C"
@@ -18,6 +18,32 @@ import (
 	"time"
 	"unsafe"
 )
+
+type cstring C.char
+
+func newCstring(s string) *cstring {
+	cs := C.malloc(C.size_t(len(s) + 1))
+	buf := (*[1<<31 - 1]byte)(cs)[:len(s)+1]
+	copy(buf, s)
+	buf[len(s)] = 0
+	return (*cstring)(cs)
+}
+
+func (cs *cstring) Free() {
+	if cs != nil {
+		C.free(unsafe.Pointer(cs))
+	}
+}
+
+func (cs *cstring) String() string {
+	buf := (*[1<<31 - 1]byte)(unsafe.Pointer(cs))
+	for n, b := range buf {
+		if b == 0 {
+			return string(buf[:n])
+		}
+	}
+	panic("rrd: bad C string")
+}
 
 var mutex sync.Mutex
 
@@ -64,10 +90,10 @@ func (c *Creator) create() error {
 	return makeError(e)
 }
 
-func (u *Updater) update(args []unsafe.Pointer) error {
+func (u *Updater) update(args []*cstring) error {
 	e := C.rrdUpdate(
-		(*C.char)(u.filename.p()),
-		(*C.char)(u.template.p()),
+		(*C.char)(u.filename),
+		(*C.char)(u.template),
 		C.int(len(args)),
 		(**C.char)(unsafe.Pointer(&args[0])),
 	)
@@ -516,7 +542,7 @@ func (e *Exporter) xport(start, end time.Time, step time.Duration) (XportResult,
 	}
 	C.free(unsafe.Pointer(cLegends))
 
-	rowCnt := (int(cEnd)-int(cStart))/int(cStep) + 1
+	rowCnt := (int(cEnd) - int(cStart)) / int(cStep) //+ 1 // FIXED: + 1 added extra uninitialized value
 	valuesLen := colCnt * rowCnt
 	values := make([]float64, valuesLen)
 	sliceHeader := (*reflect.SliceHeader)((unsafe.Pointer(&values)))
